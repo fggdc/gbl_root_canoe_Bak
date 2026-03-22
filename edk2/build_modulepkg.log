@@ -1,5 +1,5 @@
 Build environment: Linux-6.17.0-14-generic-x86_64-with-glibc2.42
-Build start time: 10:41:58, Mar.22 2026
+Build start time: 15:08:06, Mar.22 2026
 
 WORKSPACE        = /home/wyb/edk2_arm/ablbuild/gbl_root_canoe/edk2
 EDK_TOOLS_PATH   = /home/wyb/edk2_arm/ablbuild/gbl_root_canoe/edk2/BaseTools
@@ -1235,7 +1235,7 @@ Generating FVMAIN_COMPACT FV
 Generating FVMAIN FV
 Return Value = 2
 GenFv: ERROR 3000: Invalid
-  the required fv image size 0x46c90 exceeds the set fv image size 0x3d000
+  the required fv image size 0x47a60 exceeds the set fv image size 0x3d000
 
 
 
@@ -1250,6 +1250,6 @@ build.py...
 	
 
 - Failed -
-Build end time: 10:42:12, Mar.22 2026
+Build end time: 15:08:20, Mar.22 2026
 Build total time: 00:00:14
 
