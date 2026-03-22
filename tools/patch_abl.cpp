@@ -1,8 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-typedef unsigned char uint8_t;
-typedef unsigned int uint32_t;
+#include <cstdint>
 int read_file(const char* filename, unsigned char** data, size_t* size) {
     FILE* file = fopen(filename, "rb");
     if (!file) {
