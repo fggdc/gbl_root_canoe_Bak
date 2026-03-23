@@ -485,9 +485,220 @@ int find_ldrB_instructio_reverse(char* buffer, size_t size,
 
     return -1;
 }
+// ==================== ADRL 地址计算 ====================
 
-// ==================== main ====================
+// 检查 buffer 中 file_off 处是否以 needle 开头
+static bool str_at(const char* buffer, size_t size, int64_t file_off, const char* needle) {
+    if (file_off < 0) return false;
+    size_t len = strlen(needle);
+    if ((size_t)file_off + len >= size) return false;
+    return memcmp(buffer + file_off, needle, len) == 0;
+}
+// ==================== ADRL 三连识别工具 ====================
 
+// 判断是否是 ADRP Xd, #imm
+// 编码: [31]=1, [28:24]=10000, bits[23:5]=immhi, bits[4:0]=Rd
+static bool is_adrp(uint32_t instr, uint8_t* rd_out) {
+    if ((instr & 0x9F000000) != 0x90000000) return false;
+    *rd_out = instr & 0x1F;
+    return true;
+}
+
+// 判断是否是 ADD Xd, Xn, #imm (shifted immediate, 64-bit)
+// 编码: 1_00100010_0_imm12_Rn_Rd => 0x91000000
+// mask: FF800000, val: 91000000 (shift=0)
+//       FF800000, val: 91400000 (shift=12)
+static bool is_add_imm_x(uint32_t instr, uint8_t* rd_out, uint8_t* rn_out, uint32_t* imm_out) {
+    // sf=1, op=0, S=0, 100010 0/1 imm12 Rn Rd
+    if ((instr & 0xFF800000) == 0x91000000) {        // shift=0
+        *rd_out  = instr & 0x1F;
+        *rn_out  = (instr >> 5) & 0x1F;
+        *imm_out = (instr >> 10) & 0xFFF;
+        return true;
+    }
+    if ((instr & 0xFF800000) == 0x91400000) {        // shift=12
+        *rd_out  = instr & 0x1F;
+        *rn_out  = (instr >> 5) & 0x1F;
+        *imm_out = ((instr >> 10) & 0xFFF) << 12;
+        return true;
+    }
+    return false;
+}
+
+// 把一条 ADRP 指令的目标寄存器替换为 new_rd
+static uint32_t adrp_with_rd(uint32_t instr, uint8_t new_rd) {
+    return (instr & ~0x1Fu) | (new_rd & 0x1Fu);
+}
+
+// 把一条 ADD Xd, Xn, #imm 的 Rd 和 Rn 都替换为 new_reg
+static uint32_t add_with_reg(uint32_t instr, uint8_t new_reg) {
+    // 替换 Rd[4:0] 和 Rn[9:5]
+    instr = (instr & ~0x1Fu) | (new_reg & 0x1Fu);          // Rd
+    instr = (instr & ~(0x1Fu << 5)) | ((uint32_t)(new_reg & 0x1Fu) << 5); // Rn
+    return instr;
+}
+
+// 从 ADRP+ADD 对计算目标虚拟地址
+// adrp_off: ADRP 指令在 buffer 中的文件偏移
+// 返回目标的文件偏移（假设文件从 VA 0 加载，或者传入 base 修正）
+static int64_t calc_adrl_file_offset(const char* buffer, int adrp_off,
+                                      uint64_t load_base = 0) {
+    uint32_t i0 = read_instr(buffer, adrp_off);
+    uint32_t i1 = read_instr(buffer, adrp_off + 4);
+
+    uint8_t rd0 = 0, rd1 = 0, rn1 = 0;
+    uint32_t add_imm = 0;
+    if (!is_adrp(i0, &rd0)) return -1;
+    if (!is_add_imm_x(i1, &rd1, &rn1, &add_imm)) return -1;
+    if (rd1 != rd0 || rn1 != rd0) return -1;
+
+    // ADRP: PC对齐到4K页 + immhi:immlo<<12
+    uint64_t pc = load_base + (uint64_t)adrp_off;
+    uint64_t page_pc = pc & ~0xFFFull;
+
+    // 提取 ADRP imm: bits[23:5]=immhi(19位), bits[30:29]=immlo(2位)
+    uint64_t immlo = (i0 >> 29) & 0x3;
+    uint64_t immhi = (i0 >>  5) & 0x7FFFF;
+    int64_t  imm   = (int64_t)((immhi << 2) | immlo);
+    // 符号扩展到 64 位 (21 位有效)
+    if (imm & (1LL << 20)) imm |= ~((1LL << 21) - 1);
+    imm <<= 12;
+
+    uint64_t target_va = (uint64_t)((int64_t)page_pc + imm) + add_imm;
+
+    // 转回文件偏移
+    int64_t file_off = (int64_t)(target_va - load_base);
+    return file_off;
+}
+
+int patch_adrl_unlocked_to_locked(char* buffer, size_t size, uint64_t load_base = 0) {
+    if (size < 24) return 0;
+
+    int patched = 0;
+
+    for (size_t i = 0; i <= size - 24; i += 4) {
+        uint32_t i0 = read_instr(buffer, (int)(i +  0));
+        uint32_t i1 = read_instr(buffer, (int)(i +  4));
+        uint32_t i2 = read_instr(buffer, (int)(i +  8));
+        uint32_t i3 = read_instr(buffer, (int)(i + 12));
+        uint32_t i4 = read_instr(buffer, (int)(i + 16));
+        uint32_t i5 = read_instr(buffer, (int)(i + 20));
+
+        // 对 0: ADRP Xa + ADD Xa, Xa
+        uint8_t xa = 0, rd1 = 0, rn1 = 0; uint32_t imm1 = 0;
+        if (!is_adrp(i0, &xa))                     continue;
+        if (!is_add_imm_x(i1, &rd1, &rn1, &imm1))  continue;
+        if (rd1 != xa || rn1 != xa)                continue;
+
+        // 对 1: ADRP Xb + ADD Xb, Xb
+        uint8_t xb = 0, rd3 = 0, rn3 = 0; uint32_t imm3 = 0;
+        if (!is_adrp(i2, &xb))                     continue;
+        if (!is_add_imm_x(i3, &rd3, &rn3, &imm3))  continue;
+        if (rd3 != xb || rn3 != xb)                continue;
+
+        // 对 2: ADRP Xc + ADD Xc, Xc
+        uint8_t xc = 0, rd5 = 0, rn5 = 0; uint32_t imm5 = 0;
+        if (!is_adrp(i4, &xc))                     continue;
+        if (!is_add_imm_x(i5, &rd5, &rn5, &imm5))  continue;
+        if (rd5 != xc || rn5 != xc)                continue;
+
+        // 寄存器两两不同
+        if (xa == xb || xb == xc || xa == xc)      continue;
+
+        // ---- 字符串校验（关键！） ----
+        int64_t off0 = calc_adrl_file_offset(buffer, (int)(i +  0), load_base);
+        int64_t off1 = calc_adrl_file_offset(buffer, (int)(i +  8), load_base);
+        int64_t off2 = calc_adrl_file_offset(buffer, (int)(i + 16), load_base);
+
+        if (!str_at(buffer, size, off0, "unlocked"))                            continue;
+        if (!str_at(buffer, size, off1, "locked"))                              continue;
+        if (!str_at(buffer, size, off2, "androidboot.vbmeta.device_state"))     continue;
+
+        printf("Found ADRL triple at 0x%zX:\n", i);
+        printf("  [0x%zX] ADRP+ADD X%d -> file:0x%llX \"unlocked\"\n",
+               i,      xa, (unsigned long long)off0);
+        printf("  [0x%zX] ADRP+ADD X%d -> file:0x%llX \"locked\"\n",
+               i + 8,  xb, (unsigned long long)off1);
+        printf("  [0x%zX] ADRP+ADD X%d  -> file:0x%llX \"androidboot.vbmeta.device_state\"\n",
+               i + 16, xc, (unsigned long long)off2);
+
+        // Patch 第一对：复制第二对编码，寄存器改为 Xa
+        uint32_t new_adrp = adrp_with_rd(i2, xa);
+        uint32_t new_add  = add_with_reg(i3, xa);
+
+        printf("  Patch pair-0: ADRP %08X->%08X, ADD %08X->%08X\n",
+               i0, new_adrp, i1, new_add);
+
+        write_instr(buffer, (int)(i + 0), new_adrp);
+        write_instr(buffer, (int)(i + 4), new_add);
+
+        patched++;
+        i += 20;
+    }
+
+    if (patched == 0)
+        printf("ADRL triple not found\n");
+    else
+        printf("ADRL patch applied: %d location(s)\n", patched);
+
+    return patched;
+}
+int patch_adrl_unlocked_to_locked_verify(char* buffer, size_t size, uint64_t load_base = 0) {
+    if (size < 24) return 0;
+
+    int patched = 0;
+
+    for (size_t i = 0; i <= size - 24; i += 4) {
+        uint32_t i0 = read_instr(buffer, (int)(i +  0));
+        uint32_t i1 = read_instr(buffer, (int)(i +  4));
+        uint32_t i2 = read_instr(buffer, (int)(i +  8));
+        uint32_t i3 = read_instr(buffer, (int)(i + 12));
+        uint32_t i4 = read_instr(buffer, (int)(i + 16));
+        uint32_t i5 = read_instr(buffer, (int)(i + 20));
+
+        // 对 0: ADRP Xa + ADD Xa, Xa
+        uint8_t xa = 0, rd1 = 0, rn1 = 0; uint32_t imm1 = 0;
+        if (!is_adrp(i0, &xa))                     continue;
+        if (!is_add_imm_x(i1, &rd1, &rn1, &imm1))  continue;
+        if (rd1 != xa || rn1 != xa)                continue;
+
+        // 对 1: ADRP Xb + ADD Xb, Xb
+        uint8_t xb = 0, rd3 = 0, rn3 = 0; uint32_t imm3 = 0;
+        if (!is_adrp(i2, &xb))                     continue;
+        if (!is_add_imm_x(i3, &rd3, &rn3, &imm3))  continue;
+        if (rd3 != xb || rn3 != xb)                continue;
+
+        // 对 2: ADRP Xc + ADD Xc, Xc，且 Xc == X1
+        uint8_t xc = 0, rd5 = 0, rn5 = 0; uint32_t imm5 = 0;
+        if (!is_adrp(i4, &xc))                     continue;
+        if (!is_add_imm_x(i5, &rd5, &rn5, &imm5))  continue;
+        if (rd5 != xc || rn5 != xc)                continue;
+
+        // 寄存器两两不同
+        if (xa == xb || xb == xc || xa == xc)      continue;
+
+        // ---- 字符串校验（关键！） ----
+        int64_t off0 = calc_adrl_file_offset(buffer, (int)(i +  0), load_base);
+        int64_t off1 = calc_adrl_file_offset(buffer, (int)(i +  8), load_base);
+        int64_t off2 = calc_adrl_file_offset(buffer, (int)(i + 16), load_base);
+
+        if (!str_at(buffer, size, off0, "locked"))                            continue;
+        if (!str_at(buffer, size, off1, "locked"))                              continue;
+        if (!str_at(buffer, size, off2, "androidboot.vbmeta.device_state"))     continue;
+
+        printf("Found ADRL triple at 0x%zX:\n", i);
+        printf("  [0x%zX] ADRP+ADD X%d -> file:0x%llX \"locked\"\n",
+               i,      xa, (unsigned long long)off0);
+        printf("  [0x%zX] ADRP+ADD X%d -> file:0x%llX \"locked\"\n",
+               i + 8,  xb, (unsigned long long)off1);
+        printf("  [0x%zX] ADRP+ADD X%d  -> file:0x%llX \"androidboot.vbmeta.device_state\"\n",
+               i + 16, xc, (unsigned long long)off2);
+        patched++;
+        i += 20;
+    }
+
+    return patched;
+}
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         printf("Usage: %s <input_file> <output_file>\n", argv[0]);
@@ -503,7 +714,11 @@ int main(int argc, char* argv[]) {
 
     if (patch_abl_gbl((char*)data, size) != 0)
         printf("Warning: Failed to patch ABL GBL\n");
-
+    
+    if (patch_adrl_unlocked_to_locked((char*)data, size) == 0)
+        printf("Warning: ADRL triple not found, skipping\n");
+    if (patch_adrl_unlocked_to_locked_verify((char*)data, size) == 0)
+        printf("Warning: ADRL verification failed\n");
     int offset= -1;
     int8_t lock_register_num = -1;
     int num_patches = patch_abl_bootstate(
