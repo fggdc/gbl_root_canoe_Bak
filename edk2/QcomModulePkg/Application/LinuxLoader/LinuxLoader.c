@@ -878,7 +878,6 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 {
 
   EFI_STATUS Status;
-  UINT32 IsAllowUnlock = FALSE;
 
    /* Update stack check guard with random value for better security */
   /* SilentMode Boot */
@@ -925,20 +924,6 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 
 
   UpdatePartitionEntries ();
-  /*Check for multislot boot support*/
-#ifndef TEST_ADAPTER
-    Status = ReadAllowUnlockValue (&IsAllowUnlock);
-#else
-    IsAllowUnlock = TRUE; // For test adapter, directly set allow unlock to true to enter fastboot
-    Status = EFI_SUCCESS;
-#endif
-  if (Status != EFI_SUCCESS|| !IsAllowUnlock) {
-    DEBUG ((EFI_D_ERROR, "Unable to read allow unlock value: %r\n", Status));
-#ifndef TEST_ADAPTER
-    LoadIntegratedEfi();
- #endif
-    return EFI_SUCCESS;
-  }
 
   //wait for 5 sec for key press
   Print(L"Press Volume Down key to enter Fastboot mode, waiting for 5 seconds into Normal mode...\n");

@@ -2831,6 +2831,11 @@ CmdBoot (CONST CHAR8 *Arg, VOID *Data, UINT32 Size)
   boot_img_hdr *hdr = Data;
     VOID            *EfiData = NULL;
   UINT32           EfiSize = 0;
+  if (!IsAllowUnlock) {
+    FastbootFail ("CmdBoot is not allowed\n");
+    return;
+  }
+
   /* ============================================
    * 新增：检测并处理 EFI 可执行文件
    * ============================================ */
@@ -2918,176 +2923,6 @@ CmdFlashingUnLockCritical (CONST CHAR8 *arg, VOID *data, UINT32 sz)
 }
 #endif
 
-STATIC EFI_STATUS
-DisplaySetVariable (CHAR16 *VariableName, VOID *VariableValue, UINTN DataSize)
-{
-  EFI_STATUS Status = EFI_SUCCESS;
-  BOOLEAN RTVariable = FALSE;
-  EfiQcomDisplayUtilsProtocol *pDisplayUtilsProtocol = NULL;
-
-  Status = gBS->LocateProtocol (&gQcomDisplayUtilsProtocolGuid,
-                                NULL,
-                                (VOID **)&pDisplayUtilsProtocol);
-  if ((EFI_ERROR (Status)) ||
-      (pDisplayUtilsProtocol == NULL)) {
-    RTVariable = TRUE;
-  } else if (pDisplayUtilsProtocol->Revision <  0x20000) {
-    RTVariable = TRUE;
-  } else {
-    /* The display utils version for 0x20000 and above can support
-       display protocol to get and set variable */
-    Status = pDisplayUtilsProtocol->DisplayUtilsSetVariable (
-          VariableName,
-          (UINT8 *)VariableValue,
-          DataSize,
-          0);
-  }
-
-  if (RTVariable) {
-    Status = gRT->SetVariable (VariableName,
-                               &gQcomTokenSpaceGuid,
-                               EFI_VARIABLE_RUNTIME_ACCESS |
-                               EFI_VARIABLE_BOOTSERVICE_ACCESS |
-                               EFI_VARIABLE_NON_VOLATILE,
-                               DataSize,
-                               (VOID *)VariableValue);
-  }
-
-  if (Status == EFI_NOT_FOUND) {
-    // EFI_NOT_FOUND is not an error for retail case.
-    Status = EFI_SUCCESS;
-  } else if (EFI_ERROR (Status)) {
-    DEBUG ((EFI_D_VERBOSE,
-        "Display set variable failed with status(%d)!\n", Status));
-  }
-
-  return Status;
-}
-
-STATIC EFI_STATUS
-DisplayGetVariable (CHAR16 *VariableName, VOID *VariableValue, UINTN *DataSize)
-{
-  EFI_STATUS Status = EFI_SUCCESS;
-  BOOLEAN RTVariable = FALSE;
-  EfiQcomDisplayUtilsProtocol *pDisplayUtilsProtocol = NULL;
-
-  Status = gBS->LocateProtocol (&gQcomDisplayUtilsProtocolGuid,
-                                NULL,
-                                (VOID **)&pDisplayUtilsProtocol);
-  if ((EFI_ERROR (Status)) ||
-      (pDisplayUtilsProtocol == NULL)) {
-    RTVariable = TRUE;
-  } else if (pDisplayUtilsProtocol->Revision <  0x20000) {
-    RTVariable = TRUE;
-  } else {
-    /* The display utils version for 0x20000 and above can support
-       display protocol to get and set variable */
-    Status = pDisplayUtilsProtocol->DisplayUtilsGetVariable (
-          VariableName,
-          (UINT8 *)VariableValue,
-          DataSize,
-          0);
-  }
-
-  if (RTVariable) {
-    Status = gRT->GetVariable (VariableName,
-                               &gQcomTokenSpaceGuid,
-                               NULL,
-                               DataSize,
-                               (VOID *)VariableValue);
-  }
-
-  if (Status == EFI_NOT_FOUND) {
-    // EFI_NOT_FOUND is not an error for retail case.
-    Status = EFI_SUCCESS;
-  } else if (EFI_ERROR (Status)) {
-    DEBUG ((EFI_D_VERBOSE,
-        "Display get variable failed with status(%d)!\n", Status));
-  }
-
-  return Status;
-}
-
-STATIC VOID
-CmdOemSetHwFenceValue (CONST CHAR8 *arg, VOID *data, UINT32 Size)
-{
-  EFI_STATUS Status;
-  CHAR8 Resp[MAX_RSP_SIZE] = "Set HW fence value: ";
-  CHAR8 HwFenceValue[MAX_DISPLAY_PANEL_OVERRIDE] = " msm_hw_fence.enable=";
-  INTN Pos = 0;
-
-  for (Pos = 0; Pos < AsciiStrLen (arg); Pos++) {
-    if (arg[Pos] == ' ') {
-      arg++;
-      Pos--;
-    } else {
-      break;
-    }
-  }
-
-  AsciiStrnCatS (HwFenceValue,
-                 MAX_DISPLAY_PANEL_OVERRIDE,
-                 arg,
-                 AsciiStrLen (arg));
-
-  Status = gRT->SetVariable ((CHAR16 *)L"HwFenceConfiguration",
-                               &gQcomTokenSpaceGuid,
-                               EFI_VARIABLE_RUNTIME_ACCESS |
-                               EFI_VARIABLE_BOOTSERVICE_ACCESS |
-                               EFI_VARIABLE_NON_VOLATILE,
-                               AsciiStrLen (HwFenceValue),
-                               (VOID *)HwFenceValue);
-
-  if (EFI_ERROR (Status)) {
-    AsciiStrnCatS (Resp, sizeof (Resp), ": failed!", AsciiStrLen (": failed!"));
-    FastbootFail (Resp);
-  } else {
-    AsciiStrnCatS (Resp, sizeof (Resp), ": done", AsciiStrLen (": done"));
-    FastbootOkay (Resp);
-  }
-}
-
-STATIC VOID
-CmdOemSetGpuPreemptionValue (CONST CHAR8 *arg, VOID *data, UINT32 Size)
-{
-  EFI_STATUS Status;
-  CHAR8 Resp[MAX_RSP_SIZE] = "Set GPU HW Preemption: ";
-  CHAR8 GpuPreemptionValue[MAX_GPU_CONFIG_OVERRIDE] =
-          " msm_kgsl.preempt_enable=";
-  INTN Pos = 0;
-
-  for (Pos = 0; Pos < AsciiStrLen (arg); Pos++) {
-    if (arg[Pos] == ' ') {
-      arg++;
-      Pos--;
-    } else {
-      break;
-    }
-  }
-
-
-  AsciiStrnCatS (GpuPreemptionValue,
-                 MAX_GPU_CONFIG_OVERRIDE,
-                 arg,
-                 AsciiStrLen (arg));
-
-  Status = gRT->SetVariable ((CHAR16 *)L"GpuConfiguration",
-                               &gQcomTokenSpaceGuid,
-                               EFI_VARIABLE_RUNTIME_ACCESS |
-                               EFI_VARIABLE_BOOTSERVICE_ACCESS |
-                               EFI_VARIABLE_NON_VOLATILE,
-                               AsciiStrLen (GpuPreemptionValue),
-                               (VOID *)GpuPreemptionValue);
-
-  if (EFI_ERROR (Status)) {
-    AsciiStrnCatS (Resp, sizeof (Resp), ": failed!", AsciiStrLen (": failed!"));
-    FastbootFail (Resp);
-  } else {
-    AsciiStrnCatS (Resp, sizeof (Resp), ": done", AsciiStrLen (": done"));
-    FastbootOkay (Resp);
-  }
-}
-
 STATIC VOID
 CmdOemAudioFrameWork (CONST CHAR8 *Arg, VOID *Data, UINT32 Size)
 {
@@ -3102,67 +2937,6 @@ CmdOemAudioFrameWork (CONST CHAR8 *Arg, VOID *Data, UINT32 Size)
     FastbootFail ("Failed to store Audio framework");
   } else {
     FastbootOkay ("");
-  }
-}
-
-STATIC VOID
-CmdOemSelectDisplayPanel (CONST CHAR8 *arg, VOID *data, UINT32 sz)
-{
-  EFI_STATUS Status;
-  CHAR8 resp[MAX_RSP_SIZE] = "Selecting Panel: ";
-  CHAR8 DisplayPanelStr[MAX_DISPLAY_PANEL_OVERRIDE] = "";
-  CHAR8 DisplayPanelStrExist[MAX_DISPLAY_PANEL_OVERRIDE] = "";
-  INTN Pos = 0;
-  UINTN CurStrLen = 0;
-  UINTN TotalStrLen = 0;
-  BOOLEAN Append = FALSE;
-
-  for (Pos = 0; Pos < AsciiStrLen (arg); Pos++) {
-    if (arg[Pos] == ' ') {
-      arg++;
-      Pos--;
-    } else if (arg[Pos] == ':') {
-      Append = TRUE;
-    } else {
-      break;
-    }
-  }
-
-  if (Append) {
-    CurStrLen = sizeof (DisplayPanelStrExist) / sizeof (CHAR8);
-
-    Status = DisplayGetVariable ((CHAR16 *)L"DisplayPanelOverride",
-                                 (VOID *)DisplayPanelStrExist,
-                                 &CurStrLen);
-    TotalStrLen = CurStrLen + AsciiStrLen (arg);
-
-    if ((EFI_SUCCESS == Status) &&
-        (0 != CurStrLen) &&
-        (TotalStrLen < MAX_DISPLAY_PANEL_OVERRIDE)) {
-      AsciiStrnCatS (DisplayPanelStr,
-                     MAX_DISPLAY_PANEL_OVERRIDE,
-                     DisplayPanelStrExist,
-                     CurStrLen);
-      DEBUG ((EFI_D_INFO, "existing panel name (%a)\n", DisplayPanelStr));
-    }
-  }
-
-  AsciiStrnCatS (DisplayPanelStr,
-                 MAX_DISPLAY_PANEL_OVERRIDE,
-                 arg,
-                 AsciiStrLen (arg));
-
-  /* Update the environment variable with the selected panel */
-  Status = DisplaySetVariable ((CHAR16 *)L"DisplayPanelOverride",
-                               (VOID *)DisplayPanelStr,
-                               AsciiStrLen (DisplayPanelStr));
-
-  if (EFI_ERROR (Status)) {
-    AsciiStrnCatS (resp, sizeof (resp), ": failed", AsciiStrLen (": failed"));
-    FastbootFail (resp);
-  } else {
-    AsciiStrnCatS (resp, sizeof (resp), ": done", AsciiStrLen (": done"));
-    FastbootOkay (resp);
   }
 }
 
@@ -3563,9 +3337,6 @@ FastbootCommandSetup (IN VOID *Base, IN UINT64 Size)
 #ifdef ENABLE_BOOT_CMD
       {"boot", CmdBoot},
 #endif
-      {"oem select-display-panel", CmdOemSelectDisplayPanel},
-      {"oem set-hw-fence-value", CmdOemSetHwFenceValue},
-      {"oem set-gpu-preemption", CmdOemSetGpuPreemptionValue},
       {"oem device-info", CmdOemDevinfo},
 #if HIBERNATION_SUPPORT_NO_AES
       {"oem golden-snapshot", CmdGoldenSnapshot},
