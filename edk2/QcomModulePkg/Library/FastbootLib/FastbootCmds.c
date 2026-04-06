@@ -3284,6 +3284,27 @@ Exit:
   return Status;
 }
 
+
+STATIC VOID
+CmdOemContinue(
+    CONST CHAR8* Arg,
+    VOID* Data,
+    UINT32      Size
+)
+{
+    if (!IsAllowUnlock) {
+        FastbootFail("CmdOemContinue not auth");
+        return;
+    }
+
+    FastbootOkay("Booting EFI image...");
+    FastbootUsbDeviceStop();
+
+    LoadIntegratedEfi();
+
+    FastbootFail("Unexpected error");
+}
+
 /* Registers all Stock commands, Publishes all stock variables
  * and partitiion sizes. base and size are the respective parameters
  * to the Fastboot Buffer used to store the downloaded image for flashing
@@ -3346,6 +3367,7 @@ FastbootCommandSetup (IN VOID *Base, IN UINT64 Size)
       {"getvar:", CmdGetVar},
       {"download:", CmdDownload},
       {"oem audio-framework", CmdOemAudioFrameWork},
+      {"continue", CmdOemContinue},
   };
 
   /* Register the commands only for non-user builds */
