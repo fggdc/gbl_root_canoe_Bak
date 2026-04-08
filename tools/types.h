@@ -50,5 +50,13 @@ INT32 read_file(const CHAR8* filename, CHAR8** data, INT32* size) {
     fclose(file);
     return 0;
 }
+
+INT32 write_file(const CHAR8* filename, const char* line) {
+    FILE* file = fopen(filename, "w");
+    if (!file) return -1;
+    fwrite(line, 1, strlen(line), file);
+    fclose(file);
+    return 0;
+}
 #endif
 #endif

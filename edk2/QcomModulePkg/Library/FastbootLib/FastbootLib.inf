@@ -126,6 +126,7 @@
   gQcomDisplayUtilsProtocolGuid
   gEfiRamPartitionProtocolGuid
   gEfiNandPartiGuidProtocolGuid
+  gEfiRngProtocolGuid
 
 [Guids]
   gEfiUfsLU0Guid

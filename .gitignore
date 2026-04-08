@@ -21,11 +21,23 @@ ENV/
 
 # ABL/GBL Binary & Build Assets
 *.bin
-*.img
-*.efi
+##*.img
+##*.efi
 extracted/
 
 # VS Code
 .vscode/
+.vs/
+
+dist/*.id[0-9]*
+dist/*.nam
+dist/*.til
+
 
 edk2/build_modulepkg.log
+/.vs/slnx.sqlite
+/dist1/ABL_original.efi.i64
+/dist1/ABL_original.efi.id0
+/dist1/ABL_original.efi.id1
+/dist1/ABL_original.efi.nam
+/dist1/ABL_original.efi.til

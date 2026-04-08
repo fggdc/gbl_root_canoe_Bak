@@ -97,7 +97,6 @@ STATIC BOOLEAN BootIntoRecovery = FALSE;
 UINT64 FlashlessBootImageAddr = 0;
 STATIC DeviceInfo DevInfo;
 
-
 STATIC VOID
 SetDefaultAudioFw ()
 {
@@ -855,7 +854,7 @@ LoadAblFromPartition (CHAR8 **OutBuffer, UINT32 *OutSize)
 #endif
 #include "../../../../tools/patchlib.h"
 #endif
-STATIC VOID LoadIntegratedEfi(VOID){
+VOID LoadIntegratedEfi(VOID){
 #ifndef AUTO_PATCH_ABL
     BootEfiImage(dist_ABL_efi,dist_ABL_efi_len);
 #else
@@ -872,13 +871,13 @@ STATIC VOID LoadIntegratedEfi(VOID){
 }
 #endif
 EFI_STATUS
-ReadAllowUnlockValue (UINT32 *IsAllowUnlock);
+ReadAllowUnlockValue(UINT32* IsAllowUnlock);
+
 EFI_STATUS EFIAPI  __attribute__ ( (no_sanitize ("safe-stack")))
 LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 {
 
   EFI_STATUS Status;
-  UINT32 IsAllowUnlock = FALSE;
 
    /* Update stack check guard with random value for better security */
   /* SilentMode Boot */
@@ -925,40 +924,34 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 
 
   UpdatePartitionEntries ();
-  /*Check for multislot boot support*/
-#ifndef TEST_ADAPTER
-    Status = ReadAllowUnlockValue (&IsAllowUnlock);
-#else
-    IsAllowUnlock = TRUE; // For test adapter, directly set allow unlock to true to enter fastboot
-    Status = EFI_SUCCESS;
-#endif
-  if (Status != EFI_SUCCESS|| !IsAllowUnlock) {
-    DEBUG ((EFI_D_ERROR, "Unable to read allow unlock value: %r\n", Status));
-#ifndef TEST_ADAPTER
-    LoadIntegratedEfi();
- #endif
-    return EFI_SUCCESS;
-  }
 
-  //wait for 5 sec for key press
-  Print(L"Press Volume Down key to enter Fastboot mode, waiting for 5 seconds into Normal mode...\n");
-  Print(L"Press Volume Up key to enter Normal mode\n");
-  INT8 KeyStatus = WaitForVolumeDownKey (5000);
-  if(KeyStatus == 1) {
-    Print(L"Volume Down key detected, entering Fastboot mode...\n");
-  } else {
-    DEBUG ((EFI_D_INFO, "No key detected, proceeding with normal boot...\n"));
+  //if (!IsFastbootGuard) {
+      //wait for 5 sec for key press
+      Print(L"Press Volume Down key to enter Fastboot mode, waiting for 3 seconds into Normal mode...\n");
+      Print(L"Press Volume Up key to enter Normal mode\n");
+      INT8 KeyStatus = WaitForVolumeDownKey(3000);
+      if (KeyStatus == 1) {
+          Print(L"Volume Down key detected, entering Fastboot mode...\n");
+      }
+      else {
+          DEBUG((EFI_D_INFO, "No key detected, proceeding with normal boot...\n"));
 #ifndef TEST_ADAPTER
-    LoadIntegratedEfi();
+          Print(L"LoadIntegratedEfi()\n");
+          LoadIntegratedEfi();
 #endif
-    return EFI_SUCCESS;
-   }
+          return EFI_SUCCESS;
+      }
+  //}
+
   FindPtnActiveSlot ();
   
 
   BootIntoFastboot = TRUE;
 
   SetDefaultAudioFw ();
+
+
+
 
 
 #ifdef AUTO_VIRT_ABL

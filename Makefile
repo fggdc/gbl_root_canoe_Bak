@@ -27,6 +27,7 @@ build: patch
 		exit 1; \
 	fi
 	cp edk2/Build/RELEASE_CLANG35/AARCH64/LinuxLoader.efi ./dist/ABL_with_superfastboot.efi
+	-cp edk2/Build/RELEASE_CLANG35/AARCH64/QcomModulePkg/Application/LinuxLoader/LinuxLoader/DEBUG/LinuxLoader.dll ./dist/LinuxLoader.dll
 	cat ./dist/patch_log.txt
 	ls -l ./dist
 dist: build
@@ -47,6 +48,7 @@ build_superfbonly: clean
 		exit 1; \
 	fi
 	cp edk2/Build/RELEASE_CLANG35/AARCH64/LinuxLoader.efi ./dist/superfastboot.efi
+	-cp edk2/Build/RELEASE_CLANG35/AARCH64/QcomModulePkg/Application/LinuxLoader/LinuxLoader/DEBUG/LinuxLoader.dll ./dist/LinuxLoader_single.dll
 	ls -l ./dist
 
 build_generic: clean

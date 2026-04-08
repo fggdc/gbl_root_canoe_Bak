@@ -84,7 +84,7 @@
 #define ENDPOINT_OUT 0x81
 
 #define MAX_WRITE_SIZE (1024 * 1024)
-#define MAX_RSP_SIZE 64
+#define MAX_RSP_SIZE 128
 #define ERASE_BUFF_SIZE 256 * 1024
 #define ERASE_BUFF_BLOCKS 256 * 2
 
@@ -100,7 +100,7 @@
 #define SLOT_SUFFIX_ARRAY_SIZE 10
 #define SLOT_ATTR_SIZE 32
 #define ATTR_RESP_SIZE 4
-#define MAX_FASTBOOT_COMMAND_SIZE 64
+#define MAX_FASTBOOT_COMMAND_SIZE 512
 #define RECOVERY_WIPE_DATA                                                     \
   "recovery\n--wipe_data\n--reason=MasterClearConfirm\n--locale=en_US\n"
 

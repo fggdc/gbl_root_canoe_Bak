@@ -664,14 +664,68 @@ GetMemCardInfo (VOID **MemCardInfo)
 }
 const CHAR8 * hardcodesn= "0000000000000000";
 EFI_STATUS
-BoardSerialNum (CHAR8 *StrSerialNum, UINT32 Len)
+BoardSerialNum(CHAR8* StrSerialNum, UINT32 Len)
 {
-  for (UINT32 i = 0; i < Len - 1 && hardcodesn[i] != '\0'; i++) {
-    StrSerialNum[i] = hardcodesn[i];
-  }
-  StrSerialNum[Len - 1] = '\0';
-  return EFI_SUCCESS;
+    EFI_STATUS Status = EFI_INVALID_PARAMETER;
+    MEM_CARD_INFO CardInfoData;
+    EFI_MEM_CARDINFO_PROTOCOL* CardInfo = NULL;
+    EFI_CHIPINFO_PROTOCOL* ChipInfo;
+    UINT32 SerialNo;
+    MemCardType Type = EMMC;
+
+    Type = CheckRootDeviceType();
+    if ((Type == UNKNOWN) ||
+        (Type == VBLK)) {
+        Status = gBS->LocateProtocol(&gEfiChipInfoProtocolGuid, NULL,
+            (VOID**)&ChipInfo);
+        if (Status != EFI_SUCCESS) {
+            DEBUG((EFI_D_ERROR, "Error locating ChipInfoProtocol: %x\n", Status));
+            return Status;
+        }
+
+        Status = ChipInfo->GetSerialNumber(ChipInfo, &SerialNo);
+        if (Status != EFI_SUCCESS) {
+            DEBUG((EFI_D_ERROR, "Error getting serial number from ChipInfo: %x\n",
+                Status));
+            return Status;
+        }
+
+        AsciiSPrint(StrSerialNum, Len, "%x", SerialNo);
+        ToLower(StrSerialNum);
+        return Status;
+    }
+
+    Status = GetMemCardInfo((VOID**)&CardInfo);
+    if (Status != EFI_SUCCESS ||
+        !CardInfo) {
+        DEBUG((EFI_D_ERROR, "Failed to get memory card info\n"));
+        return Status;
+    }
+
+    if (CardInfo->GetCardInfo(CardInfo, &CardInfoData) == EFI_SUCCESS) {
+        if (Type == UFS) {
+            Status = gBS->CalculateCrc32(CardInfoData.product_serial_num,
+                CardInfoData.serial_num_len, &SerialNo);
+            if (Status != EFI_SUCCESS) {
+                DEBUG((EFI_D_ERROR,
+                    "Error calculating Crc of the unicode serial number: %x\n",
+                    Status));
+                return Status;
+            }
+            AsciiSPrint(StrSerialNum, Len, "%x", SerialNo);
+        }
+        else {
+            AsciiSPrint(StrSerialNum, Len, "%x",
+                *(UINT32*)CardInfoData.product_serial_num);
+        }
+
+        /* adb is case sensitive, convert the serial number to lower case
+         * to maintain uniformity across the system. */
+        ToLower(StrSerialNum);
+    }
+    return Status;
 }
+
 
 /* Helper APIs for device tree selection */
 UINT32 BoardPlatformRawChipId (VOID)
