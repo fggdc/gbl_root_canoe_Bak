@@ -111,9 +111,6 @@ INT16 Patched[] = {
     -1, -1, -1, -1, -1, -1, -1, -1
 };
 
-/*
-701,002637C
-*/
 INT32 patch_abl_bootstate(CHAR8* buffer, INT32 size,
                           INT8* lock_register_num, INT32* offset) {
     INT32 pattern_len = sizeof(Original) / sizeof(INT16);
@@ -160,12 +157,8 @@ INT32 patch_warning(CHAR8* buffer, INT32 size, INT32* offset) {
             }
         }
         if (match) {
-            i -= 4; // W8, #0x33 ; '3' 上一个
+            i -= 4;
             *offset = i;
-            /*CBZ             W10, loc_797C
-            * *****
-            *  CBZ             WZR, loc_797C
-            */
             buffer[i] = Patched_warning;
             return 1;
         }
@@ -572,7 +565,7 @@ INT32 patch_verifiedbootstate_legacy(CHAR8* buffer, INT32 size, INT32* offset) {
     UINT32* pins;
 
     INT16 pattern[] = {
-        -1, -1, -1, 0xB9, -1, 0x02, 0x00, -1,-1,-1,-1,-1, -1, 0x03, -1, 0xAA,-1,-1,-1,0x8B
+        -1, -1, -1, 0xB9, -1, -1, -1, -1,-1,-1,-1,-1, -1, 0x03, -1, 0xAA,-1,-1,-1,0x8B,-1,-1,-1,0xf9
     };
 
     INT32 pattern_len = sizeof(pattern) / sizeof(INT16);
@@ -589,8 +582,6 @@ INT32 patch_verifiedbootstate_legacy(CHAR8* buffer, INT32 size, INT32* offset) {
             pins = (UINT32*)(buffer + i);
             rd = *pins & 0x1F;
             *pins = rd | 0xD2800020;
-            Print_patcher("========pins 0x%X\n",
-                *pins);
             if (offset) *offset = i;
             return 1;
         }
